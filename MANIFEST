@@ -1,0 +1,13 @@
+README
+TODO
+Changes
+MANIFEST
+MANIFEST.SKIP
+META.yml
+Makefile.PL
+lib/App/Getconf.pm
+lib/App/Getconf/View.pm
+t/00-load.t
+t/manifest.t
+t/pod-coverage.t
+t/pod.t

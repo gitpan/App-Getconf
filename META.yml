@@ -1,0 +1,12 @@
+name:                App::Getconf
+version:             0.01
+abstract:            singleton-like config store for command-line applications
+license:             perl
+distribution_type:   module
+requires:
+  base:        0
+  Exporter:    0
+  Carp:        0
+  Tie::IxHash: 0
+author:
+  - Stanislaw Klekot <cpan@jarowit.net>
