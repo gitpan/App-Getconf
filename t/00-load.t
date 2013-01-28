@@ -3,8 +3,10 @@
 use Test::More tests => 1;
 
 BEGIN {
-    use_ok( 'App::Getconf' ) || print "Bail out!
-";
+  BAIL_OUT("can't import :schema tag")
+    if not use_ok('App::Getconf', ":schema");
 }
 
-diag( "Testing App::Getconf $App::Getconf::VERSION, Perl $], $^X" );
+diag("Testing App::Getconf $App::Getconf::VERSION, Perl $], $^X");
+
+# vim:ft=perl

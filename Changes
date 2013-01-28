@@ -1,5 +1,9 @@
 Revision history for App::Getconf
 
+0.02    Mon Jan 28 20:34:12 CET 2013
+        Fixed Pod::Coverage test (rt #82648).
+        List of tests extended slightly.
+
 0.01    Fri Jan  4 01:12:23 CET 2013
         Initial version.
 
