@@ -184,7 +184,7 @@ use Carp;
 use App::Getconf::View;
 use Tie::IxHash;
 
-our $VERSION = '0.03.00';
+our $VERSION = '0.20.02';
 
 our @EXPORT_OK = qw(
   schema

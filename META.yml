@@ -1,5 +1,5 @@
 name:                App::Getconf
-version:             0.03.00
+version:             0.20.02
 abstract:            singleton-like config store for command-line applications
 license:             perl
 distribution_type:   module
