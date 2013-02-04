@@ -1,7 +1,5 @@
 List of stuff I want this module to have
 
-  * improve handling incorrect arguments to options in App::Getopt->cmdline()
-    (now there's ugly die(), but should be pretty error)
   * on request, ignore unrecognized options in App::Getopt->options() method
   * on request, 1) ignore or 2) treat as non-option args unrecognized options
     in App::Getopt->cmdline() ((2) should make multi-level option sets

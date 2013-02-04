@@ -24,3 +24,12 @@ WriteMakefile(
   dist          => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
   #clean         => { FILES => 'App-Getconf-*' },
 );
+
+sub MY::postamble {
+  return <<'EOF'
+.PHONY: tarball
+tarball: export RELEASE_TESTING=1
+tarball: test
+	git archive --format=tar --prefix=$(DISTVNAME)/ v$(VERSION) | gzip -9 > $(DISTVNAME).tar.gz
+EOF
+}

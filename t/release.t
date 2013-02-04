@@ -7,7 +7,9 @@ use strict;
 use warnings;
 use Test::More;
 use ExtUtils::MakeMaker;
-use YAML;
+
+eval "use YAML";
+plan skip_all => "YAML required for author tests" if $@;
 
 if ($ENV{RELEASE_TESTING}) {
   plan(tests => 3);
@@ -86,33 +88,33 @@ warn $@ if $@;
 # cheap tests
 
 note('"correct" is the version from module itself');
-is($meta_version, $module_version, "META.yml version is correct");
-is($changelog_version, $module_version, "`Changes' describes the new version");
+is($meta_version, $module_version, "META.yml version == module version");
+is($changelog_version, $module_version, "`Changes' version == module version");
 
 #-----------------------------------------------------------------------------
 # difficult test with git tags
 
 if (not defined $git_version) {
   diag("no git tag found");
-  fail("git tag is correct version");
+  fail("git tag == module version");
 } elsif ($git_version eq $module_version) {
-  pass("git tag is correct version");
+  pass("git tag == module version");
 } else {
   my @git = map { 0 + $_ } split /\./, $git_version;
   my @mod = map { 0 + $_ } split /\./, $module_version;
 
   if ($git[0] == $mod[0] && $git[1] == $mod[1] && $git[2] + 1 == $mod[2]) {
     diag("git tag off by one patchlevel");
-    pass("git tag is correct version");
+    pass("git tag == module version");
   } elsif ($git[0] == $mod[0] && $git[1] + 1 == $mod[1] && $mod[2] == 0) {
     diag("git tag off by one minor version");
-    pass("git tag is correct version");
+    pass("git tag == module version");
   } else {
     diag("git tag incompatible: ", explain {
       git => $git_version,
       module => $module_version,
     });
-    fail("git tag is correct version");
+    fail("git tag == module version");
   }
 }
 
