@@ -27,9 +27,18 @@ WriteMakefile(
 
 sub MY::postamble {
   return <<'EOF'
+.PHONY: reltest
+reltest: export RELEASE_TESTING=1
+reltest: test
+
 .PHONY: tarball
-tarball: export RELEASE_TESTING=1
-tarball: test
+tarball: make reltest
 	git archive --format=tar --prefix=$(DISTVNAME)/ v$(VERSION) | gzip -9 > $(DISTVNAME).tar.gz
+
+.PHONY: make
+make: Makefile
+
+Makefile: Makefile.PL lib/App/Getconf.pm
+	perl Makefile.PL
 EOF
 }
