@@ -34,10 +34,11 @@ my $conf = eval {
   $conf;
 };
 
+diag($@) if $@;
 BAIL_OUT("creating App::Getconf and setting schema failed") if not $conf;
 
 # XXX: this is white-box testing, I know well how should the $conf look like
-is(keys(%{ $conf->{schema}  }), 3 + 2 + 2, "number of (actual) options");
+is(keys(%{ $conf->{options} }), 3 + 2 + 2, "number of (actual) options");
 is(keys(%{ $conf->{aliases} }), 3,         "number of aliases");
 
 #-----------------------------------------------------------------------------

@@ -38,47 +38,47 @@ my $conf;
 
 #$conf = create_app_getconf();
 #$conf->options({ optflag => 1 }); # ???
-#is($conf->{options}{optflag}, 1, "flag passed once equals to 1");
+#is($conf->{options}{optflag}{value}, 1, "flag passed once equals to 1");
 
 #-----------------------------------------------------------------------------
 # Boolean options
 
 $conf = create_app_getconf();
 $conf->options({ optbool => 0 });
-is($conf->{options}{optbool}, 0, "Boolean option, negated");
+is($conf->{options}{optbool}{value}, 0, "Boolean option, negated");
 
 $conf = create_app_getconf();
 $conf->options({ optbool => 1 });
-is($conf->{options}{optbool}, 1, "Boolean option, affirmed");
+is($conf->{options}{optbool}{value}, 1, "Boolean option, affirmed");
 
 #-----------------------------------------------------------------------------
 # int options
 
 $conf = create_app_getconf();
 $conf->options({ optint => 1024 });
-is($conf->{options}{optint}, 1024, "int option");
+is($conf->{options}{optint}{value}, 1024, "int option");
 
 #-----------------------------------------------------------------------------
 # float options
 
 $conf = create_app_getconf();
 $conf->options({ optfloat => 0.5 });
-is($conf->{options}{optfloat}, 0.5, "float option");
+is($conf->{options}{optfloat}{value}, 0.5, "float option");
 
 #-----------------------------------------------------------------------------
 # string options
 
 $conf = create_app_getconf();
 $conf->options({ optstring => undef });
-is($conf->{options}{optstring}, undef, "string option, <undef>");
+is($conf->{options}{optstring}{value}, undef, "string option, <undef>");
 
 $conf = create_app_getconf();
 $conf->options({ optstring => "" });
-is($conf->{options}{optstring}, "", "string option, empty");
+is($conf->{options}{optstring}{value}, "", "string option, empty");
 
 $conf = create_app_getconf();
 $conf->options({ optstring => "foo bar baz" });
-is($conf->{options}{optstring}, "foo bar baz", "string option, non-empty");
+is($conf->{options}{optstring}{value}, "foo bar baz", "string option, non-empty");
 
 #-----------------------------------------------------------------------------
 # subsystem options
@@ -86,7 +86,7 @@ is($conf->{options}{optstring}, "foo bar baz", "string option, non-empty");
 $conf = create_app_getconf();
 $conf->options({ subsystem => { string => "string option in subsystem" } });
 is(
-  $conf->{options}{"subsystem.string"},
+  $conf->{options}{"subsystem.string"}{value},
   "string option in subsystem",
   "string option, nested"
 );
@@ -94,7 +94,7 @@ is(
 $conf = create_app_getconf();
 $conf->options({ "subsystem.string" => "string option in subsystem (dot)" });
 is(
-  $conf->{options}{"subsystem.string"},
+  $conf->{options}{"subsystem.string"}{value},
   "string option in subsystem (dot)",
   "string option, nested (dot-notation)"
 );

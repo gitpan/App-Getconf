@@ -1,5 +1,12 @@
 Revision history for App::Getconf
 
+0.20.04 Sun Apr 13 21:49:29 CEST 2014
+        Maintenance update: change "name" field in META.yml
+
+0.20.03 Tue Feb 26 01:18:56 CET 2013
+        Refactored whole module to enable adding defining options with
+        priorities (e.g. config prio=10, cmdline prio=20).
+
 0.20.02 Mon Feb  4 10:03:53 CET 2013
         `version.pm' thinks 0.02 is higher than 0.02.01. OK, my bad.
         I should use semantic versioning (http://semver.org/) anyway.

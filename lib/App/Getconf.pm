@@ -182,9 +182,10 @@ use strict;
 use base qw{Exporter};
 use Carp;
 use App::Getconf::View;
+use App::Getconf::Node;
 use Tie::IxHash;
 
-our $VERSION = '0.20.02';
+our $VERSION = '0.20.04';
 
 our @EXPORT_OK = qw(
   schema
@@ -230,7 +231,6 @@ sub new {
   my ($class, %opts) = @_;
 
   my $self = bless {
-    schema  => undef,
     aliases => undef,
     options => undef,
     args    => undef,
@@ -282,13 +282,10 @@ sub option_schema {
   $self = $static unless ref $self; # static call or non-static?
 
   my @schema = _flatten($schema, "");
-  $self->{schema} = {};
+  $self->{options} = {};
   $self->{aliases} = {};
   $self->{help}{order} = [];
   for my $opt (@schema) {
-    # chomp leading and trailing periods from option name
-    $opt->{name} =~ s/^\.|\.$//g;
-
     if ($opt->{opt}->alias) {
       # alias option
 
@@ -297,21 +294,10 @@ sub option_schema {
     } else {
       # normal (non-alias) option
 
-      $self->{schema}{ $opt->{name} } = $opt->{opt};
+      $self->{options}{ $opt->{name} } = $opt->{opt};
       # remember the order of messages
       if ($opt->{opt}->help) {
         push @{ $self->{help}{order} }, $opt->{name};
-      }
-
-      # set initial value if it's defined or it's a flag
-      if ((exists $opt->{opt}{value} || $opt->{opt}->type eq 'flag') &&
-          !exists $self->{options}{ $opt->{name} }) {
-        $self->{options} ||= {};
-        if ($opt->{opt}->type eq 'flag') {
-          $self->{options}{ $opt->{name} } = 0;
-        } else {
-          $self->set_verify($opt->{opt}{value}, $opt->{name});
-        }
       }
     }
   }
@@ -324,22 +310,29 @@ sub option_schema {
     # option can't be an alias and non-alias at the same time
     if ($self->{aliases}{$dest}) {
       croak "Alias \"$name\" points to another alias called \"$dest\"";
-    } elsif (not $self->{schema}{$dest}) {
+    } elsif (not $self->{options}{$dest}) {
       croak "Alias \"$name\" points to a non-existent option \"$dest\"";
     }
   }
-
-  # TODO: recalculate options
 }
 
-# function flattens schema hashref tree to a flat hash, where option names are
-# separated by "."
-#   * $root - root of schema hashref tree to convert (recursively)
-#   * $path - path so far (should be empty string initially; intended for
-#             recursive call)
-# outcome is a hash with two fields:
-#   * "name" contains full option path; it includes leading period and may
-#     contain trailing period, so it requires small amount of postprocessing
+=begin Internal
+
+=pod _flatten() {{{
+
+=item C<_flatten($root, $path)>
+
+Function flattens schema hashref tree to a flat hash, where option names are
+separated by C<.>.
+
+C<$root> is a root of schema hashref tree to convert (recursively).
+C<$path> is used to keep path so far in recursive call. It should be an empty string initially.
+
+Returned value is a hash with two fields: I<name> contains full option path,
+and I<opt> is actual L<App::Getconf::Node(3)> object.
+
+=cut
+
 sub _flatten {
   my ($root, $path) = @_;
 
@@ -348,8 +341,10 @@ sub _flatten {
                sort keys %$root;
   my @result;
   for my $o (@opts) {
-    if (ref $root->{$o} eq "App::Getconf::Opt") {
-      push @result, { name => "$path.$o", opt => $root->{$o} };
+    if (eval { $root->{$o}->isa("App::Getconf::Node") }) {
+      my $name = "$path.$o";
+      $name =~ s/^\.|\.$//g;
+      push @result, { name => $name, opt => $root->{$o} };
     } elsif (ref $root->{$o} eq 'HASH') {
       # XXX: don't try $root->{$o}{""}, it will be collected in the recursive
       # _flatten() call (note that this may leave trailing period for this
@@ -359,6 +354,12 @@ sub _flatten {
   }
   return @result;
 }
+
+=end Internal
+
+=pod }}}
+
+=cut
 
 #-----------------------------------------------------------------------------
 
@@ -443,7 +444,7 @@ sub help_message {
   my %format_markers;
 
   #---------------------------------------------------------
-  # synopsis
+  # header {{{
 
   if ($opts{header}) {
     $line = _reformat($opts{header}, $opts{screen});
@@ -452,6 +453,10 @@ sub help_message {
     $help .= $line;
     $help .= "\n"; # additional empty line
   }
+
+  # }}}
+  #---------------------------------------------------------
+  # synopsis {{{
 
   if (ref $opts{synopsis} eq 'ARRAY') {
     $line = join "\n", @{ $opts{synopsis} };
@@ -482,6 +487,10 @@ sub help_message {
 
   }
 
+  # }}}
+  #---------------------------------------------------------
+  # description (below synopsis) {{{
+
   if ($opts{description}) {
     $line = _reformat($opts{description}, $opts{screen});
     $line =~ s/%0/$opts{arg0}/g;
@@ -492,8 +501,9 @@ sub help_message {
     $format_markers{multiline_synopsis} = 1;
   }
 
+  # }}}
   #---------------------------------------------------------
-  # options
+  # options {{{
 
   if ($self->{help}{order} && @{ $self->{help}{order} }) {
     $line = "Options available:\n";
@@ -502,30 +512,31 @@ sub help_message {
       my $dash_opt = (length $opt > 1) ? "--$opt" : "-$opt";
       $dash_opt =~ tr/./-/;
 
+      my $node = $self->option_node($opt);
+
       my $init_val = "";
-      if ($self->{schema}{$opt}->has_value) {
-        $init_val = $self->{schema}{$opt}->value;
+      if ($node->has_value) {
+        $init_val = $node->get;
         $init_val = "<undef>" if not defined $init_val;
         $init_val = " (initially: $init_val)";
       }
 
-      # option header (indented "--option")
+      # option header (indented "--option") {{{
       # TODO: aliases
-      if ($self->{schema}{$opt}->type eq 'flag') {
+      if ($node->type eq 'flag') {
         $line .= sprintf "%*s%s\n", $opts{option_indent}, "", $dash_opt;
-      } elsif ($self->{schema}{$opt}->type eq 'bool') {
+      } elsif ($node->type eq 'bool') {
         my $neg_dash_opt = "--no-$opt";
         $neg_dash_opt =~ tr/./-/;
         $line .= sprintf "%*s%s, %s\n",
                          $opts{option_indent}, "",
-                         ($self->{schema}{$opt}->value ?
+                         ($node->get ?
                            ($neg_dash_opt, $dash_opt) :
                            ($dash_opt, $neg_dash_opt));
-      } elsif ($self->{schema}{$opt}->has_default) {
-        my $type = $self->{schema}{$opt}->type;
-        if (ref $self->{schema}{$opt}{check} eq 'ARRAY') {
-          # enums
-          $type = join "|", @{ $self->{schema}{$opt}{check} };
+      } elsif ($node->has_default) {
+        my $type = $node->type;
+        if ($node->enum) {
+          $type = join "|", @{ $node->enum };
         }
         $line .= sprintf "%*s%s, %s=%s%s\n",
                          $opts{option_indent}, "",
@@ -533,10 +544,9 @@ sub help_message {
                          $dash_opt, $type,
                          $init_val;
       } else {
-        my $type = $self->{schema}{$opt}->type;
-        if (ref $self->{schema}{$opt}{check} eq 'ARRAY') {
-          # enums
-          $type = join "|", @{ $self->{schema}{$opt}{check} };
+        my $type = $node->type;
+        if ($node->enum) {
+          $type = join "|", @{ $node->enum };
         }
 
         $line .= sprintf "%*s%s=%s%s\n",
@@ -544,11 +554,14 @@ sub help_message {
                          $dash_opt, $type,
                          $init_val;
       }
+      # }}}
 
+      # option description (reformatted help message) # {{{
       $line .= _reformat(
-        $self->{schema}{$opt}->help,
+        $node->help,
         $opts{screen}, $opts{description_indent}
       );
+      # }}}
     }
 
     if (_nlines($line) > 16 || $format_markers{multiline_synopsis} ||
@@ -561,6 +574,10 @@ sub help_message {
     $format_markers{has_options} = 1;
   }
 
+  # }}}
+  #---------------------------------------------------------
+  # footer {{{
+
   if ($opts{footer}) {
     $line = _reformat($opts{footer}, $opts{screen});
     $line =~ s/%0/$opts{arg0}/g;
@@ -569,10 +586,21 @@ sub help_message {
     $help .= $line;
   }
 
+  # }}}
   #---------------------------------------------------------
 
   return $help;
 }
+
+=begin Internal
+
+=pod _nlines(), _reformat() {{{
+
+=item C<_nlines($string)>
+
+Calculate number of lines in C<$string>.
+
+=cut
 
 sub _nlines {
   my ($str) = @_;
@@ -582,8 +610,13 @@ sub _nlines {
   return $nlines;
 }
 
-# reformat a multiparagraph string to include maximum of ($width-1) characters
-# per line, including indentation
+=item C<_reformat($string, $max_width, $indent)>
+
+Reformat a multiparagraph string to include maximum of C<$width-1> characters
+per line, including indentation.
+
+=cut
+
 sub _reformat {
   my ($str, $width, $indent) = @_;
 
@@ -612,6 +645,12 @@ sub _reformat {
   return join "\n", @result;
 }
 
+=end Internal
+
+=pod }}}
+
+=cut
+
 #-----------------------------------------------------------------------------
 
 =item C<options($options)>
@@ -628,7 +667,6 @@ sub options {
   my ($self, $options) = @_;
 
   $self = $static unless ref $self; # static call or non-static?
-  $self->{options} ||= {};          # in case it was empty
 
   $self->set_verify($options);
 }
@@ -660,179 +698,227 @@ sub cmdline {
 
   $self = $static unless ref $self; # static call or non-static?
 
-  my @args;
-  # replace short options with their double-dash versions
-  for my $arg (@{ $arguments || \@ARGV }) {
-    if ($arg =~ /^-([a-zA-Z0-9]+)$/) {
-      my $candidates = $1;
-      my @unrecognized;
-      for my $c (split //, $candidates) {
-        if ($self->{schema}{$c} || $self->{aliases}{$c}) {
-          push @args, join "", ("-", @unrecognized) if @unrecognized;
-          @unrecognized = ();
-          push @args, "--$c";
-        } else {
-          push @unrecognized, $c;
-        }
-      }
-      push @args, join "", ("-", @unrecognized) if @unrecognized;
-    } else {
-      push @args, $arg;
-    }
-  }
-
+  my @args = @{ $arguments || \@ARGV };
   my @left;
   my @errors;
 
   OPTION:
   for (my $i = 0; $i < @args; ++$i) {
+    my $option;
+    my $option_name;
+    my $option_arg; # undef only when no argument, with argument at least ""
+
     if ($args[$i] =~ /^--([a-zA-Z0-9-]+)=(.*)$/) {
-      # option with a value
-      my ($name, $value) = ($1, $2);
+      # long option with parameter {{{
 
-      # try resolving alias first
-      my $orig_name = $name;
-      if ($self->{aliases}{ _sw_to_opt($name) }) {
-        $name = $self->{aliases}{ _sw_to_opt($name) }->alias;
-      }
+      $option_name = $1;
+      $option_arg  = $2;
+      $option = "--$option_name";
 
-      if (not $self->{schema}{ _sw_to_opt($name) }) {
-        push @errors, {
-          option => "--$orig_name",
-          cause => "unknown option",
-        };
-        next OPTION;
-      }
+      push @errors, $self->_try_set($option, $option_name, $option_arg);
 
-      if ($self->{schema}{ _sw_to_opt($name) }->storage eq 'HASH') {
-        my ($k, $v) = split /=/, $value, 2;
-        if (not defined $v) {
-          push @errors, {
-            option => "--$orig_name",
-            cause => "value \"$value\" is not a keyspec",
-          };
-          next OPTION;
+      # }}}
+    } elsif ($args[$i] =~ /^--([a-zA-Z0-9-]+)$/) {
+      # long option, possible parameter in next argument {{{
+
+      $option_name = $1;
+      $option = $args[$i];
+
+      # there's no option of exactly the same name, but the --option looks
+      # like a negation of Boolean
+      if (!$self->has_option($option_name) && $option_name =~ /^no-/) {
+        my $negated_name = substr $option_name, 3;
+
+        # there is an option without "--no-" prefix and that option is
+        # a Boolean, so it might be actually negated
+        if ($self->has_option($negated_name) &&
+            $self->option_node($negated_name)->type() eq 'bool') {
+          $option_name = $negated_name;
+          $option = "--$negated_name";
+          $option_arg = 0;
         }
-        $self->set_verify({ $k => $v }, _sw_to_opt($name));
-      } else {
-        $self->set_verify($value, _sw_to_opt($name));
       }
 
-    } elsif ($args[$i] =~ /^--((no-)?([a-zA-Z0-9-]+))$/) {
-      # generic option (could have a value, but this is to be checked)
-      my ($full_name, $negated, $name) = ($1, $2, $3);
-      my $value;
-
-      # try resolving alias first
-      my $orig_full_name = $full_name;
-      my $orig_name = $name;
-      if ($self->{aliases}{ _sw_to_opt($full_name) }) {
-        $full_name = $self->{aliases}{ _sw_to_opt($full_name) }->alias;
-      }
-      if ($self->{aliases}{ _sw_to_opt($name) }) {
-        $name = $self->{aliases}{ _sw_to_opt($name) }->alias;
-      }
-
-      my $node = $self->{schema}{ _sw_to_opt($full_name) };
-      if ($node) {
-        if ($node->type eq 'bool') {
-          # bool option doesn't use arguments
-
-          $self->set_verify(1, _sw_to_opt($full_name));
-
-        } elsif ($node->type eq 'flag') {
-          # flag doesn't use arguments
-
-          # NOTE: flag is the only case of option set without using
-          # set_verify() method
-          # FIXME: this renders flag options to be non-settable with
-          # set_verify(); is this bad or "don't care"?
-          $self->{options}{ _sw_to_opt($full_name) } += 1;
-
-        } elsif ($node->has_default) {
-          # option with default argument
-
-          $self->set_verify($node->default, _sw_to_opt($full_name));
-
+      if ($self->has_option($option_name) &&
+          $self->option_node($option_name)->requires_arg()) {
+        # consume the next argument, if this is possible; if not, report an
+        # error
+        if ($i < $#args) {
+          # TODO: if $args[++$i] =~ /^-/, don't consume it (require people to
+          # use "--foo=-arg" form)
+          $option_arg = $args[++$i];
         } else {
-          # non-bool option uses an argument
-
-          if ($i < @args - 1) {
-            $i += 1;
-            $value = $args[$i];
-          } else {
-            # missing argument
-            push @errors, {
-              option => "--$orig_full_name",
-              cause => "missing argument",
-            };
-            next OPTION; # actually, this could be `last OPTION;'
-          }
-
-          if ($self->{schema}{ _sw_to_opt($name) }->storage eq 'HASH') {
-            my ($k, $v) = split /=/, $value, 2;
-            if (not defined $v) {
-              push @errors, {
-                option => "--$orig_name",
-                cause => "value \"$value\" is not a keyspec",
-              };
-              next OPTION;
-            }
-            $self->set_verify({ $k => $v }, _sw_to_opt($name));
-          } else {
-            $self->set_verify($value, _sw_to_opt($name));
-          }
-
+          push @errors, {
+            option => $option,
+            cause => "missing argument",
+          };
         }
-      } elsif ($negated && $self->{schema}{ _sw_to_opt($name) } &&
-               $self->{schema}{ _sw_to_opt($name) }->type eq 'bool') {
-        # bool option, but negated
-        $self->set_verify(0, _sw_to_opt($name));
-      } else {
-        # not a known option, not a negated known bool option (negation for
-        # non-bool options has no sense)
-        push @errors, {
-          option => "--$orig_full_name",
-          cause => "unknown option",
-        };
-        next OPTION; # actually, this could be `last OPTION;'
       }
 
-    } elsif ($args[$i] eq '--') {
+      push @errors, $self->_try_set($option, $option_name, $option_arg);
 
-      push @left, @args[$i + 1 .. @args - 1];
-      last OPTION;
+      # }}}
+    } elsif ($args[$i] =~ /^-([a-zA-Z0-9]+)$/) {
+      # set of short options {{{
 
-    } elsif ($args[$i] =~ /^-(.*)/) {
+      my @short_opts = split //, $1;
 
-      push @errors, {
-        option => "-$1",
-        cause => "unknown option",
-      };
+      for my $sopt (@short_opts) {
+        # XXX: short options can't have arguments specified
+        push @errors, $self->_try_set("-$sopt", $sopt);
+      }
+
       next OPTION;
 
+      # }}}
+    } elsif ($args[$i] eq "--") {
+      # end-of-options marker {{{
+
+      # mark all the rest of arguments as non-options
+      push @left, @args[$i + 1 .. $#args];
+      last OPTION;
+
+      # }}}
+    } elsif ($args[$i] =~ /^-/) {
+      # anything beginning with dash (e.g. "-@", "--()&*^&^") {{{
+
+      push @errors, {
+        option => $args[$i],
+        cause => "unknown option",
+      };
+
+      # }}}
     } else {
+      # non-option {{{
 
       push @left, $args[$i];
+      next OPTION;
 
+      # }}}
     }
   }
 
   $self->{args} = \@left;
 
   if (@errors) {
+    # TODO: use $_->{"eval"}
     return map { "$_->{option}: $_->{cause}" } @errors;
   } else {
     return;
   }
 }
 
-sub _sw_to_opt {
-  my ($name) = @_;
+#-----------------------------------------------------------------------------
+
+=item C<has_option($name)>
+
+Check if the schema contains a command line option called C<$name> (aliases
+are resolved).
+
+B<NOTE>: This is a semi-internal API.
+
+=cut
+
+sub has_option {
+  my ($self, $name) = @_;
+
+  $self = $static unless ref $self; # static call or non-static?
 
   $name =~ tr/-/./;
-  return $name;
+
+  return defined $self->{options}{$name} || defined $self->{aliases}{$name};
 }
+
+=item C<option_node($name)>
+
+Retrieve an option node (L<App::Getconf::Node(3)>) corresponding to C<$name>.
+
+Method C<die()>s when no such option is defined in schema.
+
+B<NOTE>: This is a semi-internal API.
+
+=cut
+
+sub option_node {
+  my ($self, $name) = @_;
+
+  $self = $static unless ref $self; # static call or non-static?
+
+  $name =~ tr/-/./;
+
+  if ($self->{options}{$name}) {
+    return $self->{options}{$name};
+  }
+
+  if ($self->{aliases}{$name}) {
+    my $target = $self->{aliases}{$name}->alias;
+    return $self->{options}{$target};
+  }
+
+  croak "No option called $name in schema";
+}
+
+=begin Internal
+
+=pod _try_set() {{{
+
+=item C<_try_set($option, $option_name, $option_argument)>
+
+Try setting option C<$option_name> (C<$option> was the actual name, under
+which it was specified -- mainly I<-X> or I<--long-X>). If the option was
+given a parameter (empty string counts here, too), it should be specified as
+C<$option_argument>, otherwise C<$option_argument> should be left C<undef>.
+
+In case of success, returned value is empty list. In case of failure,
+returned value is a hashref with two keys: I<option> containing C<$option> and
+I<cause> containing an error message. There could be third key I<eval>,
+containing C<$@>. Method is suitable for
+C<< push @errors, $o->_try_set(...) >>.
+
+=cut
+
+sub _try_set {
+  my ($self, $option, $opt_name, $opt_arg) = @_;
+
+  if (not $self->has_option($opt_name)) {
+    return {
+      option => $option,
+      cause => "unknown option",
+    };
+  }
+
+  my $node = $self->option_node($opt_name);
+
+  if (defined $opt_arg) {
+    if (not eval { $node->set($opt_arg); "OK" }) {
+      chomp $@;
+      return {
+        option => $option,
+        cause => "invalid option argument: $opt_arg",
+        eval => $@,
+      };
+    }
+  } else { # not defined $opt_arg
+    # XXX: this is important not to pass an argument to $node->set() here, as
+    # it would try to set undef
+    if (not eval { $node->set(); "OK" }) {
+      chomp $@;
+      return {
+        option => $option,
+        cause => "invalid option argument: <undef>",
+        eval => $@,
+      };
+    }
+  }
+
+  return ();
+}
+
+=end Internal
+
+=pod }}}
+
+=cut
 
 #-----------------------------------------------------------------------------
 
@@ -854,46 +940,17 @@ sub set_verify {
   $self = $static unless ref $self; # static call or non-static?
 
   $path ||= "";
-  my $schema = $self->{schema};
-  my $store  = ($self->{options} ||= {});
 
-  my $datum_type = ref $data;
+  my $datum_type = lc(ref $data) || "scalar";
 
-  # this is an option, but there's no corresponding schema node
-  if ($datum_type ne 'HASH' && !$schema->{$path}) {
-    $datum_type = lc($datum_type || 'scalar');
-    croak "Unexpected $datum_type option ($path)";
-  }
-
-  # simple case: data is a scalar
-  if ($datum_type eq '') {
-    # scalar can be stored in a scalar or in an array
-
-    if ($schema->{$path}->storage eq '') {
-      $store->{$path} = $schema->{$path}->check($data, $path);
-    } elsif ($schema->{$path}->storage eq 'ARRAY') {
-      $store->{$path} ||= [];
-      push @{ $store->{$path}}, $schema->{$path}->check($data, $path);
-    } elsif ($schema->{$path}->storage eq 'HASH') {
-      croak "Scalar option found where hash was expected ($path)";
+  if ($datum_type ne 'hash') {
+    # this is an option, but there's no corresponding schema node
+    if (not $self->has_option($path)) {
+      # $path: unknown option ($datum_type)
+      croak "Unexpected $datum_type option ($path)";
     }
 
-    return;
-  }
-
-  # simple case: data is an array
-  if ($datum_type eq 'ARRAY') {
-    # array can only be stored in an array
-
-    if ($schema->{$path}->storage ne 'ARRAY') {
-      my $type = lc($schema->{$path}->storage || 'scalar');
-      croak "Array option found where $type was expected ($path)";
-    }
-
-    for my $e (@$data) {
-      $store->{$path} ||= [];
-      push @{ $store->{$path} }, $schema->{$path}->check($e, $path);
-    }
+    $self->option_node($path)->set($data);
 
     return;
   }
@@ -901,8 +958,9 @@ sub set_verify {
   # more complex case: data is a hash
 
   # if no corresponding node in schema, just go deeper
-  # if there is corresponding node, but it's not a hash, just go deeper
-  if (!$schema->{$path} || $schema->{$path}->storage ne 'HASH') {
+  # if there is corresponding node, but it's not a hash, just go deeper, too
+  if (!$self->has_option($path) ||
+      $self->option_node($path)->storage() ne 'hash') {
     for my $o (keys %$data) {
       my $new_path = "$path.$o";
       $new_path =~ s/^\.|\.$//g;
@@ -913,12 +971,12 @@ sub set_verify {
     return;
   }
 
-  # it's sure that $schema->{$path} exists and it's storage type is HASH
+  # it's sure that option called $path exists and it's storage type is "hash"
   # also, this option's type is hash
 
-  $store->{$path} ||= {};
+  my $node = $self->option_node($path);
   for my $k (keys %$data) {
-    $store->{$path}{$k} = $schema->{$path}->check($data->{$k}, $path);
+    $node->set($k, $data->{$k});
   }
 }
 
@@ -983,7 +1041,6 @@ sub getopt {
     $self->{getopt_cache}{$package} = new App::Getconf::View(
       prefix  => $package,
       options => $self->{options},
-      schema  => $self->{schema},
     );
   }
 
@@ -1127,27 +1184,25 @@ sub opt($) {
     # make sure the store is not a reference to something outside of this
     # function
     if (ref $storage eq 'ARRAY') {
-      $storage = 'ARRAY';
+      $storage = 'array';
     } elsif (ref $storage eq 'HASH') {
-      $storage = 'HASH';
+      $storage = 'hash';
     } elsif (ref $storage eq 'SCALAR') {
-      $storage = '';
+      $storage = 'scalar';
     } # TODO: else die?
   } else {
-    $storage = '';
+    $storage = 'scalar';
   }
 
-  my $opt = bless {
+  return new App::Getconf::Node(
     type    => $type,
     check   => $check,
     storage => $storage,
     help    => $help,
-  }, 'App::Getconf::Opt';
-  # XXX: this way undefs are possible to represent as undefs
-  $opt->{value}   = $opt->check($value)   if exists $data->{value};
-  $opt->{default} = $opt->check($default) if exists $data->{default};
-
-  return $opt;
+    # XXX: this way undefs are possible to represent as undefs
+    (exists $data->{value}   ? (value   => $value  ) : ()),
+    (exists $data->{default} ? (default => $default) : ()),
+  );
 }
 
 =item C<opt_alias($option)>
@@ -1162,7 +1217,7 @@ Aliases may only point to non-alias options.
 sub opt_alias($) {
   my ($dest_option) = @_;
 
-  return bless { alias => $dest_option }, 'App::Getconf::Opt';
+  return new App::Getconf::Node(alias => $dest_option);
 }
 
 =item C<opt_flag()>
@@ -1318,137 +1373,5 @@ L<App::Getconf::View(3)>, L<Getopt::Long(3)>, L<Tie::IxHash(3)>.
 =cut
 
 #-----------------------------------------------------------------------------
-#
-# utility class that represents an option specification in schema
-#
-#-----------------------------------------------------------------------------
-
-package App::Getconf::Opt;
-
-use Carp;
-# App::Getconf::View is supposed to be carp-silenced by the transitivity rule
-our @CARP_NOT = qw{App::Getconf};
-
-sub check {
-  my ($self, $value, $optname) = @_;
-
-  my $type  = $self->{type} || 'string';
-  my $check = $self->{check};
-
-  # string appended to die()
-  my $optname_die_str = defined $optname ? " ($optname)" : "";
-
-  eval {
-    # convert warnings to errors
-    local $SIG{__WARN__} = sub { die $@ };
-
-    if ($type eq 'string') {
-      $value = defined $value ? "$value" : undef;
-    } elsif ($type eq 'int') {
-      # TODO: better check
-      $value = int(0 + $value);
-    } elsif ($type eq 'float') {
-      # TODO: better check
-      $value = 0.0 + $value;
-    } # TODO: how to check boolean?
-    # XXX: flags are not supposed to be processed by this function
-  };
-
-  # on any warning, assume the data is not in correct format
-  if ($@) {
-    croak "Invalid value \"$value\" for type $type$optname_die_str";
-  }
-  if ($type eq 'flag') {
-    croak "Flag can't have a value$optname_die_str";
-  }
-
-  # check for correctness
-
-  if (not $self->{check}) {
-    # no check, so everything is OK
-
-    return $value;
-  } elsif (ref $self->{check} eq 'CODE') {
-    # check based on function
-
-    if (do { local $_ = $value; $self->{check}->($_) }) {
-      return $value;
-    } else {
-      croak "Value \"$value\" ($type) was not accepted by check$optname_die_str";
-    }
-  } elsif (ref($self->{check}) =~ /(^|::)Regexp$/) {
-    # check based on regexp
-
-    my $re = $self->{check};
-    if ($value =~ /$re/) {
-      return $value;
-    } else {
-      croak "Value \"$value\" ($type) was not accepted by regexp check$optname_die_str";
-    }
-  } elsif (ref $self->{check} eq 'ARRAY') {
-    if (!defined $value && grep { !defined } @{ $self->{check} }) {
-      return $value;
-    }
-    if (defined $value && grep { $_ eq $value } @{ $self->{check} }) {
-      return $value;
-    }
-    $value = defined $value ? "\"$value\"" : "<undef>";
-    croak "Invalid value $value for enum$optname_die_str";
-  }
-
-  die "Unknown check type: @{[ ref $self->{check} ]}$optname_die_str"
-}
-
-sub type {
-  my ($self) = @_;
-
-  return $self->{type} || "string";
-}
-
-sub storage {
-  my ($self) = @_;
-
-  # should be empty string (defined) on scalar, "HASH" on hash, "ARRAY" on
-  # array (because of construction; see App::Getconf->opt())
-  return $self->{storage};
-}
-
-sub help {
-  my ($self) = @_;
-
-  return $self->{help};
-}
-
-sub has_value {
-  my ($self) = @_;
-
-  return exists $self->{value};
-}
-
-sub value {
-  my ($self) = @_;
-
-  return $self->{value};
-}
-
-sub default {
-  my ($self) = @_;
-
-  return $self->{default};
-}
-
-sub has_default {
-  my ($self) = @_;
-
-  return exists $self->{default};
-}
-
-sub alias {
-  my ($self) = @_;
-
-  return $self->{alias};
-}
-
-#-----------------------------------------------------------------------------
 1;
-# vim:ft=perl
+# vim:ft=perl:foldmethod=marker

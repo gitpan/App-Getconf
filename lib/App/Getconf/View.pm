@@ -68,11 +68,7 @@ prefix.
 
 =item C<options>
 
-Hashref containing all the option values.
-
-=item C<schema>
-
-B<TODO>
+Hashref containing all the L<App::Getconf::Node(3)> objects.
 
 =back
 
@@ -84,7 +80,6 @@ sub new {
   my $self = bless {
     prefixes => undef,
     options  => $opts{options},
-    schema   => $opts{schema},
   }, $class;
 
   my @parts = split /\./, $opts{prefix};
@@ -116,6 +111,22 @@ sub prefixes {
 #-----------------------------------------------------------------------------
 # find an appropriate key
 
+=begin Internal
+
+=pod _lookup() {{{
+
+=item C<_lookup($option_name, $type, $storage)>
+
+Find an option called C<$option_name> looking under prefixes.
+
+If C<$type> was specified, option will need to have this type.
+
+If C<$storage> was specified, option will need to have this storage type.
+
+Returned value is full option name (C<undef> if nothing was found).
+
+=cut
+
 sub _lookup {
   my ($self, $optname, $type, $storage) = @_;
 
@@ -123,29 +134,29 @@ sub _lookup {
     my $o = "$p.$optname";
 
     # no node in schema => can't have a value
-    next if not $self->{schema}{$o};
+    next if not $self->{options}{$o};
     # type filter was requested, but current node's type doesn't match
-    next if defined $type    && $self->{schema}{$o}->type    ne $type;
+    next if defined $type    && $self->{options}{$o}->type    ne $type;
     # storage filter was requested, but current node's storage doesn't match
-    next if defined $storage && lc $self->{schema}{$o}->storage ne $storage;
+    next if defined $storage && $self->{options}{$o}->storage ne $storage;
 
     if (exists $self->{options}{$o}) {
       return $o;
     }
   }
 
-  if (not $self->{schema}{$optname}) {
-    return;
-  }
-  if (defined $type && $self->{schema}{$optname}->type ne $type) {
-    return;
-  }
-  if (defined $storage && lc $self->{schema}{$optname}->storage ne $storage) {
-    return;
-  }
+  return undef if not $self->{options}{$optname};
+  return undef if defined $type    && $self->{options}{$optname}->type    ne $type;
+  return undef if defined $storage && $self->{options}{$optname}->storage ne $storage;
 
   return $optname;
 }
+
+=end Internal
+
+=pod }}}
+
+=cut
 
 #-----------------------------------------------------------------------------
 
@@ -174,7 +185,7 @@ sub top {
   my ($self, $optname) = @_;
 
   if (exists $self->{options}{$optname}) {
-    return $self->{options}{$optname};
+    return $self->{options}{$optname}->get;
   }
 
   return;
@@ -183,29 +194,56 @@ sub top {
 #-----------------------------------------------------------------------------
 # top_*()
 
+=begin Test::Pod::Coverage
+
+=item C<top_allinwonder($name, $type)>
+
+Retrieve value of option C<$name> (no lookup), expecting type C<$type>. Method
+does not discriminate between different storage types, it just checks the
+type. It's a helper for C<top_type_*()> methods.
+
+Method returns C<($value, App::Getconf::Node)>.
+
+=end Test::Pod::Coverage
+
+=cut
+
 sub top_allinwonder {
   my ($self, $optname, $type) = @_;
 
-  my $value = $self->{options}{$optname};
-  my $opt   = $self->{schema}{$optname};
+  my $opt = $self->{options}{$optname};
 
   if (not $opt) {
     croak "Option not found: $optname";
   }
+
   if ($opt->type ne $type) {
     croak "Type mismatch for $optname: expected $type, got @{[$opt->type]}";
   }
 
-  return ($value, $opt);
+  return ($opt->get, $opt);
 }
+
+=begin Test::Pod::Coverage
+
+=item C<top_type_scalar()>
+
+Retrieve value of option C<$name> (no lookup), expecting type C<$type> and the
+option storage being a simple scalar.
+
+Method returns value stored for the option.
+
+=end Test::Pod::Coverage
+
+=cut
 
 sub top_type_scalar {
   my ($self, $optname, $type) = @_;
 
   my ($value, $opt) = $self->top_allinwonder($optname, $type);
 
-  if ($opt->storage ne '') { # other possibilities: ARRAY, HASH
-    croak "Scalar option $optname requested, got @{[lc $opt->storage]}";
+  if ($opt->storage ne 'scalar') { # other possibilities: array, hash
+    croak "Scalar option $optname requested, got @{[$opt->storage]}";
   }
 
   # convert bool to 1/0
@@ -215,26 +253,53 @@ sub top_type_scalar {
   return $value;
 }
 
+=begin Test::Pod::Coverage
+
+=item C<top_type_array()>
+
+Retrieve value of option C<$name> (no lookup), expecting type C<$type> and the
+option storage being an array.
+
+Method returns plain list (possibly empty) of values stored for the option.
+
+=end Test::Pod::Coverage
+
+=cut
+
 sub top_type_array {
   my ($self, $optname, $type) = @_;
 
   my ($value, $opt) = $self->top_allinwonder($optname, $type);
 
-  if ($opt->storage ne 'ARRAY') { # other possibilities: "", HASH
-    my $type = lc $opt->storage || "scalar";
+  if ($opt->storage ne 'array') { # other possibilities: "", HASH
+    my $type = $opt->storage;
     croak "Array option $optname requested, got $type";
   }
 
   return @{ $value || [] };
 }
 
+=begin Test::Pod::Coverage
+
+=item C<top_type_hash($name, $type)>
+
+Retrieve value of option C<$name> (no lookup), expecting type C<$type> and the
+option storage being a hash.
+
+In list context method returns list of pairs (key => value) of data stored for
+the option. In scalar context method returns hashref of the data.
+
+=end Test::Pod::Coverage
+
+=cut
+
 sub top_type_hash {
   my ($self, $optname, $type) = @_;
 
   my ($value, $opt) = $self->top_allinwonder($optname, $type);
 
-  if ($opt->storage ne 'HASH') { # other possibilities: "", ARRAY
-    my $type = lc $opt->storage || "scalar";
+  if ($opt->storage ne 'hash') { # other possibilities: scalar, array
+    my $type = $opt->storage;
     croak "Hash option $optname requested, got $type";
   }
 
@@ -299,7 +364,7 @@ sub AUTOLOAD {
   if ($optname =~ /^(get|top)_(flag|bool|int|float|string)(_(array|hash))?$/) {
     my $lookup = $1;
     my $type = $2;
-    my $storage = $4 || "";
+    my $storage = $4 || "scalar";
     my $name = $_[1];
 
     if ($lookup eq 'get') {
@@ -365,4 +430,4 @@ L<App::Getconf(3)>
 
 #-----------------------------------------------------------------------------
 1;
-# vim:ft=perl
+# vim:ft=perl:foldmethod=marker

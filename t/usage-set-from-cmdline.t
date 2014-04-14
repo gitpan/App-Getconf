@@ -39,22 +39,22 @@ my $conf;
 # flags
 
 $conf = create_app_getconf();
-is($conf->{options}{optflag}, 0, "omitted flag equals initially to 0");
+is($conf->{options}{optflag}{value}, 0, "omitted flag equals initially to 0");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optflag ]]);
-is($conf->{options}{optflag}, 1, "flag passed once equals to 1");
+is($conf->{options}{optflag}{value}, 1, "flag passed once equals to 1");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optflag --optflag --optflag ]]);
-is($conf->{options}{optflag}, 3, "flag passed three times equals to 3");
+is($conf->{options}{optflag}{value}, 3, "flag passed three times equals to 3");
 
 $conf = create_app_getconf();
-is($conf->{options}{"subsystem.flag"}, 0, "flag in subsystem (omitted)");
+is($conf->{options}{"subsystem.flag"}{value}, 0, "flag in subsystem (omitted)");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --subsystem-flag --subsystem-flag --subsystem-flag ]]);
-is($conf->{options}{"subsystem.flag"}, 3, "flag in subsystem (passed 3 times)");
+is($conf->{options}{"subsystem.flag"}{value}, 3, "flag in subsystem (passed 3 times)");
 
 #-----------------------------------------------------------------------------
 # Boolean options
@@ -62,60 +62,60 @@ is($conf->{options}{"subsystem.flag"}, 3, "flag in subsystem (passed 3 times)");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --no-optbool ]]);
-is($conf->{options}{optbool}, 0, "Boolean option, negated");
+is($conf->{options}{optbool}{value}, 0, "Boolean option, negated");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optbool ]]);
-is($conf->{options}{optbool}, 1, "Boolean option, affirmed");
+is($conf->{options}{optbool}{value}, 1, "Boolean option, affirmed");
 
 #-----------------------------------------------------------------------------
 # int options
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optint=1024 ]]);
-is($conf->{options}{optint}, 1024, "int option");
+is($conf->{options}{optint}{value}, 1024, "int option");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optint 1024 ]]);
-is($conf->{options}{optint}, 1024, "int option passed as two arguments");
+is($conf->{options}{optint}{value}, 1024, "int option passed as two arguments");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optint -1024 ]]);
-is($conf->{options}{optint}, -1024, "int option, negative value, as two arguments");
+is($conf->{options}{optint}{value}, -1024, "int option, negative value, as two arguments");
 
 #-----------------------------------------------------------------------------
 # float options
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optfloat=0.5 ]]);
-is($conf->{options}{optfloat}, 0.5, "float option");
+is($conf->{options}{optfloat}{value}, 0.5, "float option");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optfloat 0.5 ]]);
-is($conf->{options}{optfloat}, 0.5, "float option passed as two arguments");
+is($conf->{options}{optfloat}{value}, 0.5, "float option passed as two arguments");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw[ --optfloat -0.5 ]]);
-is($conf->{options}{optfloat}, -0.5, "float option, negative value, as two arguments");
+is($conf->{options}{optfloat}{value}, -0.5, "float option, negative value, as two arguments");
 
 #-----------------------------------------------------------------------------
 # string options
 
 $conf = create_app_getconf();
 $conf->cmdline(["--optstring="]);
-is($conf->{options}{optstring}, "", "string option, empty");
+is($conf->{options}{optstring}{value}, "", "string option, empty");
 
 $conf = create_app_getconf();
 $conf->cmdline(["--optstring==foo bar baz"]);
-is($conf->{options}{optstring}, "=foo bar baz", "string option, non-empty");
+is($conf->{options}{optstring}{value}, "=foo bar baz", "string option, non-empty");
 
 $conf = create_app_getconf();
 $conf->cmdline(["--optstring", "=foo bar baz"]);
-is($conf->{options}{optstring}, "=foo bar baz", "string option, as two arguments");
+is($conf->{options}{optstring}{value}, "=foo bar baz", "string option, as two arguments");
 
 $conf = create_app_getconf();
 $conf->cmdline(["--optstring", ""]);
-is($conf->{options}{optstring}, "", "string option, as two arguments, empty");
+is($conf->{options}{optstring}{value}, "", "string option, as two arguments, empty");
 
 #-----------------------------------------------------------------------------
 # aliases
@@ -124,15 +124,15 @@ is($conf->{options}{optstring}, "", "string option, as two arguments, empty");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw{ --aliasint=100 }]);
-is($conf->{options}{optint}, 100, "alias to int");
+is($conf->{options}{optint}{value}, 100, "alias to int");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw{ --aliasint 200 }]);
-is($conf->{options}{optint}, 200, "alias to int, as two arguments");
+is($conf->{options}{optint}{value}, 200, "alias to int, as two arguments");
 
 $conf = create_app_getconf();
 $conf->cmdline([qw{ --aliassubflag --aliassubflag }]);
-is($conf->{options}{"subsystem.flag"}, 2, "alias to a flag, passed twice");
+is($conf->{options}{"subsystem.flag"}{value}, 2, "alias to a flag, passed twice");
 
 #-----------------------------------------------------------------------------
 # vim:ft=perl

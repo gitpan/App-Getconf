@@ -38,7 +38,6 @@ tarball: make reltest
 .PHONY: make
 make: Makefile
 
-Makefile: Makefile.PL lib/App/Getconf.pm
-	perl Makefile.PL
+Makefile: lib/App/Getconf.pm
 EOF
 }
